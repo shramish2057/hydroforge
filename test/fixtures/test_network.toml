@@ -1,0 +1,79 @@
+# Test drainage network configuration
+
+[network]
+name = "Test Network"
+description = "Simple test network for unit testing"
+
+[[junctions]]
+id = 1
+x = 100.0
+y = 100.0
+invert = -2.0
+ground = 0.0
+type = "MANHOLE"
+init_depth = 0.0
+
+[[junctions]]
+id = 2
+x = 200.0
+y = 100.0
+invert = -2.5
+ground = -0.5
+type = "MANHOLE"
+init_depth = 0.0
+
+[[junctions]]
+id = 3
+x = 300.0
+y = 100.0
+invert = -3.0
+ground = -1.0
+type = "OUTFALL"
+
+[[pipes]]
+id = 1
+upstream_node = 1
+downstream_node = 2
+shape = "circular"
+diameter = 0.45
+length = 100.0
+roughness = 0.013
+invert_up = -2.0
+invert_down = -2.5
+
+[[pipes]]
+id = 2
+upstream_node = 2
+downstream_node = 3
+shape = "rectangular"
+width = 0.6
+height = 0.4
+length = 100.0
+roughness = 0.015
+invert_up = -2.5
+invert_down = -3.0
+
+[[inlets]]
+id = 1
+junction_id = 1
+grid_i = 10
+grid_j = 10
+type = "GRATE"
+length = 0.6
+width = 0.6
+clogging_factor = 1.0
+
+[[inlets]]
+id = 2
+junction_id = 2
+grid_i = 20
+grid_j = 10
+type = "CURB"
+length = 1.2
+width = 0.15
+
+[[outlets]]
+id = 1
+junction_id = 3
+type = "FREE"
+invert = -3.0

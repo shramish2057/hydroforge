@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [100.5, 50.5]
+      },
+      "properties": {"name": "Gauge 1"}
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [200.5, 150.5]
+      },
+      "properties": {"name": "Gauge 2"}
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "MultiPoint",
+        "coordinates": [[300.0, 200.0], [400.0, 250.0]]
+      },
+      "properties": {"name": "Gauge Group"}
+    }
+  ]
+}

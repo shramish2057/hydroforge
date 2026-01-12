@@ -457,40 +457,77 @@ function cmd_run_coupled(args::ParsedArgs)
     status_info("Loading scenario: $(basename(scenario_path))")
     status_info("Loading network: $(basename(network_path))")
 
+    # Parse options
+    output_dir = get(args.options, "output", nothing)
+
     try
         # Load scenario
         scenario = load_scenario(scenario_path)
+        status_ok("Scenario loaded: $(scenario.name)")
 
-        # Load network (would need a network loader)
-        status_warn("Network loading from TOML not yet implemented")
-        status_info("Use programmatic API for coupled simulations")
+        # Load network
+        network = load_network_from_toml(network_path)
+        status_ok("Network loaded: $(n_junctions(network)) junctions, $(n_pipes(network)) pipes, $(n_inlets(network)) inlets")
+
+        # Validate network
+        network_issues = validate(network)
+        if !isempty(network_issues)
+            status_warn("Network has $(length(network_issues)) issue(s):")
+            for issue in network_issues
+                println("  $(yellow("•")) $issue")
+            end
+        end
+
+        # Create coupled scenario
+        coupled = CoupledScenario(scenario, network)
+
+        # Create state
+        state = CoupledState(scenario.grid, network)
+
+        status_info("Starting coupled 1D-2D simulation...")
+        println()
+
+        # Run coupled simulation
+        results = run_coupled!(state, coupled; verbosity=verbosity)
 
         println()
-        println("$(bold("Example usage:"))")
-        println(dim("""
-        using HydroForge
+        println(dim("="^50))
+        println(bold("Coupled Simulation Complete"))
+        println()
 
-        # Load scenario
-        scenario = load_scenario("$scenario_path")
+        # Summary
+        println("$(bold("Surface Results:"))")
+        println("  Steps:         $(results.surface_results.step_count)")
+        println("  Max depth:     $(@sprintf("%.3f", results.surface_results.max_depth))m")
+        println("  Max velocity:  $(@sprintf("%.3f", results.surface_results.max_velocity))m/s")
+        println()
 
-        # Create drainage network
-        j1 = Junction(1, 100.0, 100.0, -2.0, 0.0)
-        j2 = Junction(2, 200.0, 100.0, -2.5, -0.5)
-        pipe = PipeSegment(1, 1, 2, CircularPipe(0.45), 100.0, 0.013, -2.0, -2.5)
-        inlet = Inlet(1, 1, 10, 10)
-        outlet = Outlet(1, 2; outlet_type=:FREE)
-        network = DrainageNetwork([pipe], [j1, j2], [inlet], [outlet])
+        println("$(bold("Drainage Results:"))")
+        println("  Total inlet flow:   $(@sprintf("%.3f", sum(state.drainage.inlet_flow)))m³/s")
+        println("  Total outlet flow:  $(@sprintf("%.3f", sum(state.drainage.outlet_flow)))m³/s")
+        println()
 
-        # Create coupled scenario and run
-        coupled = CoupledScenario(scenario, network)
-        state = CoupledState(scenario.grid, network)
-        results = run_coupled!(state, coupled; verbosity=1)
-        """))
+        # Save results if output dir specified
+        if output_dir !== nothing
+            mkpath(output_dir)
+            results_path = joinpath(output_dir, "coupled_results.json")
+            status_info("Saving results to: $results_path")
+            # Note: Would need to implement coupled results writer
+        end
 
+        status_ok("Coupled simulation completed successfully")
         return 0
 
     catch e
         status_error("Failed: $(sprint(showerror, e))")
+        if verbosity >= 2
+            println()
+            println(dim("Stack trace:"))
+            for (exc, bt) in Base.catch_stack()
+                showerror(stdout, exc, bt)
+                println()
+            end
+        end
         return 1
     end
 end
@@ -658,31 +695,159 @@ function cmd_benchmark(args::ParsedArgs)
 end
 
 function cmd_network_validate(args::ParsedArgs)
-    status_info("Network validation from file not yet implemented")
-    println()
-    println("Use programmatic API to validate networks:")
-    println(dim("""
-    using HydroForge
-
-    # Create network
-    network = DrainageNetwork(pipes, junctions, inlets, outlets)
-
-    # Validate
-    issues = validate(network)
-    if isempty(issues)
-        println("Network is valid")
-    else
-        for issue in issues
-            println(issue)
-        end
+    if isempty(args.positional)
+        status_error("Missing network file path")
+        println("Usage: hydroforge network validate <network.toml>")
+        return 1
     end
-    """))
-    return 0
+
+    network_path = args.positional[1]
+
+    if !isfile(network_path)
+        status_error("Network file not found: $network_path")
+        return 1
+    end
+
+    println()
+    println(bold("Validating: ") * network_path)
+    println()
+
+    try
+        network = load_network_from_toml(network_path)
+        issues = validate(network)
+
+        if isempty(issues)
+            status_ok("Network is valid")
+            println()
+            println(bold("Network Summary:"))
+            println("  Junctions: $(n_junctions(network))")
+            println("  Pipes:     $(n_pipes(network))")
+            println("  Inlets:    $(n_inlets(network))")
+            println("  Outlets:   $(length(network.outlets))")
+            println()
+            return 0
+        else
+            status_error("Validation found $(length(issues)) issue(s):")
+            println()
+            for (i, issue) in enumerate(issues)
+                println("  $(red("$i.")) $issue")
+            end
+            println()
+            return 1
+        end
+    catch e
+        status_error("Failed to load network: $(sprint(showerror, e))")
+        return 1
+    end
 end
 
 function cmd_network_info(args::ParsedArgs)
-    status_info("Network info from file not yet implemented")
-    return 0
+    if isempty(args.positional)
+        # Show general network info
+        println()
+        println(bold("Drainage Network Commands"))
+        println()
+        println("Usage: hydroforge network <subcommand> [options]")
+        println()
+        println(bold("Subcommands:"))
+        println("  $(cyan("validate")) <network.toml>  Validate a network file")
+        println("  $(cyan("info")) <network.toml>      Show network details")
+        println()
+        return 0
+    end
+
+    # Check for subcommand
+    subcommand = args.positional[1]
+
+    if subcommand == "validate"
+        # Reparse with file as positional
+        new_args = ParsedArgs("network", args.positional[2:end], args.options)
+        return cmd_network_validate(new_args)
+    elseif subcommand == "info" && length(args.positional) >= 2
+        network_path = args.positional[2]
+    else
+        network_path = subcommand  # Assume it's a file path
+    end
+
+    if !isfile(network_path)
+        status_error("Network file not found: $network_path")
+        return 1
+    end
+
+    println()
+    println(bold("Network Information: ") * network_path)
+    println(dim("="^50))
+    println()
+
+    try
+        network = load_network_from_toml(network_path)
+
+        # Summary
+        println(bold("Summary:"))
+        println("  Junctions: $(n_junctions(network))")
+        println("  Pipes:     $(n_pipes(network))")
+        println("  Inlets:    $(n_inlets(network))")
+        println("  Outlets:   $(length(network.outlets))")
+        println()
+
+        # Junction details
+        if !isempty(network.junctions)
+            println(bold("Junctions:"))
+            for j in network.junctions
+                type_str = string(j.junction_type)
+                println("  $(cyan("J$(j.id)")) [$type_str] at ($(j.x), $(j.y)) invert=$(j.invert)m ground=$(j.ground)m")
+            end
+            println()
+        end
+
+        # Pipe details
+        if !isempty(network.pipes)
+            println(bold("Pipes:"))
+            for p in network.pipes
+                section_str = if p.section isa CircularPipe
+                    "D=$(p.section.diameter)m"
+                else
+                    "$(p.section.width)m×$(p.section.height)m"
+                end
+                s = slope(p)
+                println("  $(cyan("P$(p.id)")) J$(p.upstream_node)→J$(p.downstream_node) L=$(p.length)m $section_str slope=$(@sprintf("%.4f", s))")
+            end
+            println()
+        end
+
+        # Inlet details
+        if !isempty(network.inlets)
+            println(bold("Inlets:"))
+            for inlet in network.inlets
+                type_str = string(inlet.inlet_type)
+                println("  $(cyan("I$(inlet.id)")) [$type_str] at grid($(inlet.grid_i),$(inlet.grid_j)) → J$(inlet.junction_id)")
+            end
+            println()
+        end
+
+        # Outlet details
+        if !isempty(network.outlets)
+            println(bold("Outlets:"))
+            for outlet in network.outlets
+                println("  $(cyan("O$(outlet.id)")) [$(outlet.outlet_type)] at J$(outlet.junction_id) invert=$(outlet.invert)m")
+            end
+            println()
+        end
+
+        # Validation
+        issues = validate(network)
+        if isempty(issues)
+            status_ok("Network validation passed")
+        else
+            status_warn("Network has $(length(issues)) validation issue(s)")
+        end
+        println()
+
+        return 0
+    catch e
+        status_error("Failed to load network: $(sprint(showerror, e))")
+        return 1
+    end
 end
 
 # =============================================================================

@@ -22,6 +22,10 @@ using HydroForge
         include("test_io.jl")
     end
 
+    @testset "IO Extended" begin
+        include("test_io_extended.jl")
+    end
+
     @testset "Integration" begin
         include("test_integration.jl")
     end

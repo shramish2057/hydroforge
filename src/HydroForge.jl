@@ -184,8 +184,9 @@ include("io/writers.jl")
 include("io/validation.jl")
 
 # Export IO
-export read_geotiff, read_rainfall_csv, read_points_geojson, read_array
+export read_geotiff, read_esri_ascii, read_rainfall_csv, read_points_geojson, read_array
 export read_scenario_toml, load_scenario_from_toml
+export read_network_toml, load_network_from_toml, point_to_cell
 export write_geotiff, write_hydrograph_csv, write_results_json, write_array
 export ResultsPackage, write_results
 export validate_dem, validate_roughness, validate_rainfall, validate_scenario
