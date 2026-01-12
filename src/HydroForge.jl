@@ -137,7 +137,8 @@ export ResultsAccumulator, update_results!, record_output!
 export hazard_rating, froude_number, hazard_category, summarize_hazard
 export RunConfig, create_run_config
 export RunMetadata, create_metadata, get_git_commit
-export run, run_demo, load_scenario, save_results, save_metadata
+export SimulationError, save_snapshot
+export run, run_demo, load_scenario, save_results, save_metadata, validate_scenario_file
 
 # =============================================================================
 # CLI

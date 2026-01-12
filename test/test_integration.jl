@@ -494,3 +494,134 @@ end
         @test record[4] ≈ 0.2   # qy
     end
 end
+
+@testset "Phase 10: Simulation Runner & Logging" begin
+    @testset "SimulationError Exception" begin
+        # Test SimulationError creation and display
+        err = SimulationError("Test error message", 100, 50.5, nothing)
+
+        @test err.message == "Test error message"
+        @test err.step == 100
+        @test err.time == 50.5
+        @test err.original_error === nothing
+
+        # Test with wrapped exception
+        original = ErrorException("Original error")
+        err_wrapped = SimulationError("Wrapped error", 200, 100.0, original)
+        @test err_wrapped.original_error isa ErrorException
+
+        # Test showerror output
+        io = IOBuffer()
+        showerror(io, err)
+        msg = String(take!(io))
+        @test occursin("step 100", msg)
+        @test occursin("50.5", msg)
+    end
+
+    @testset "RunConfig Creation" begin
+        # Test with minimal parameters
+        mktempdir() do tmpdir
+            scenario_path = joinpath(tmpdir, "test_scenario.toml")
+            touch(scenario_path)
+
+            config = create_run_config(scenario_path)
+
+            @test config.scenario_path == scenario_path
+            @test config.save_snapshots == false
+            @test config.snapshot_interval == 300.0
+            @test config.enable_profiling == false
+            @test config.verbosity == 1
+            @test !isempty(config.run_id)
+            @test isdir(config.output_dir)
+        end
+
+        # Test with custom parameters
+        mktempdir() do tmpdir
+            scenario_path = joinpath(tmpdir, "test_scenario.toml")
+            custom_output = joinpath(tmpdir, "custom_output")
+            touch(scenario_path)
+
+            config = create_run_config(scenario_path;
+                                       output_dir=custom_output,
+                                       save_snapshots=true,
+                                       snapshot_interval=60.0,
+                                       enable_profiling=true,
+                                       verbosity=2)
+
+            @test config.output_dir == custom_output
+            @test config.save_snapshots == true
+            @test config.snapshot_interval == 60.0
+            @test config.enable_profiling == true
+            @test config.verbosity == 2
+
+            # Snapshot directory should be created
+            @test isdir(joinpath(custom_output, "snapshots"))
+        end
+    end
+
+    @testset "RunMetadata Creation" begin
+        mktempdir() do tmpdir
+            scenario_path = joinpath(tmpdir, "test.toml")
+            touch(scenario_path)
+
+            config = create_run_config(scenario_path; verbosity=0)
+            params = SimulationParameters(t_end=100.0, dt_max=1.0, cfl=0.9)
+
+            metadata = create_metadata(config, "TestScenario", params)
+
+            @test metadata.run_id == config.run_id
+            @test metadata.scenario_name == "TestScenario"
+            @test metadata.status == :running
+            @test metadata.error_message === nothing
+            @test metadata.julia_version == string(VERSION)
+            @test metadata.parameters["t_end"] == 100.0
+            @test metadata.parameters["cfl"] == 0.9
+            @test isempty(metadata.performance)
+            @test isempty(metadata.hazard_summary)
+        end
+    end
+
+    @testset "Snapshot Saving" begin
+        mktempdir() do tmpdir
+            mkpath(joinpath(tmpdir, "snapshots"))
+
+            grid = Grid(10, 10, 5.0)
+            state = SimulationState(grid)
+            state.h[5, 5] = 0.5
+            state.t = 100.0
+
+            snapshot_path = save_snapshot(state, grid, tmpdir, 1)
+
+            @test isfile(snapshot_path)
+            @test occursin("depth_0001.dat", snapshot_path)
+
+            # Verify snapshot content
+            data = open(snapshot_path, "r") do f
+                t = read(f, Float64)
+                nx = read(f, Int32)
+                ny = read(f, Int32)
+                h = Array{Float64}(undef, nx, ny)
+                read!(f, h)
+                (t, nx, ny, h)
+            end
+
+            @test data[1] ≈ 100.0  # time
+            @test data[2] == 10     # nx
+            @test data[3] == 10     # ny
+            @test data[4][5, 5] ≈ 0.5  # depth at (5,5)
+        end
+    end
+
+    @testset "Git Commit Detection" begin
+        # get_git_commit should return a string (or substring) or nothing
+        commit = get_git_commit()
+        @test commit === nothing || (commit isa AbstractString && length(commit) == 40)
+    end
+
+    @testset "Validate Scenario File" begin
+        # Test with non-existent file
+        issues = validate_scenario_file("/nonexistent/path/scenario.toml")
+        @test length(issues) > 0
+        @test any(occursin("not found", issue) for issue in issues)
+    end
+end
