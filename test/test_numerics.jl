@@ -197,6 +197,106 @@ end
         # (exact value depends on friction, but should be non-zero)
         @test any(abs.(qx_new[2:9, :]) .> 0)
     end
+
+    @testset "Y-Direction Flux" begin
+        # Test flux in y-direction with slope
+        grid = Grid(10, 10, 10.0)
+        h = ones(10, 10)
+
+        # Create a slope in y-direction
+        z = zeros(10, 10)
+        for i in 1:10, j in 1:10
+            z[i, j] = (j - 1) * 0.1  # 10% slope in y
+        end
+
+        n = fill(0.03, 10, 10)
+        qy = zeros(10, 10)
+        qy_new = zeros(10, 10)
+
+        params = SimulationParameters()
+        compute_flux_y!(qy_new, qy, h, z, n, grid, params, 0.1)
+
+        # Should have non-zero flux in y-direction
+        @test any(abs.(qy_new[:, 2:8]) .> 0)
+    end
+
+    @testset "Face Depth Interpolation" begin
+        # Test face depth at step
+        h = [1.0 1.0; 0.5 0.5]
+        z = [0.0 0.0; 0.5 0.5]  # Step in bed
+
+        # Face between (1,1) and (2,1)
+        h_face = face_depth_x(h, z, 1, 1)
+        # η_L = 1.0, η_R = 1.0, z_face = max(0.0, 0.5) = 0.5
+        # h_face = max(1.0, 1.0) - 0.5 = 0.5
+        @test h_face ≈ 0.5
+
+        # Face with different water levels
+        h2 = [2.0 2.0; 1.0 1.0]
+        z2 = [0.0 0.0; 0.0 0.0]
+
+        h_face_y = face_depth_y(h2, z2, 1, 1)
+        # η_B = 2.0, η_T = 1.0, z_face = 0.0
+        # h_face = max(2.0, 1.0) - 0.0 = 2.0
+        @test h_face_y ≈ 2.0
+    end
+
+    @testset "Velocity Computation" begin
+        h_min = 0.001
+
+        # Normal velocity
+        @test compute_velocity(1.0, 2.0, h_min) ≈ 0.5
+
+        # Dry cell returns zero
+        @test compute_velocity(1.0, 0.0005, h_min) == 0.0
+
+        # Zero discharge
+        @test compute_velocity(0.0, 1.0, h_min) == 0.0
+    end
+end
+
+@testset "Wetting and Drying" begin
+    @testset "is_wet" begin
+        h_min = 0.001
+        @test is_wet(0.01, h_min) == true
+        @test is_wet(0.001, h_min) == false
+        @test is_wet(0.0005, h_min) == false
+    end
+
+    @testset "wet_dry_factor" begin
+        h_min = 0.001
+        h_trans = 0.002
+
+        # Dry cell
+        @test wet_dry_factor(0.0005, h_min, h_trans) == 0.0
+
+        # Fully wet
+        @test wet_dry_factor(0.01, h_min, h_trans) == 1.0
+
+        # Transition zone (smooth)
+        factor = wet_dry_factor(0.002, h_min, h_trans)
+        @test 0 < factor < 1
+        @test factor ≈ 0.5  # Midpoint of cubic
+    end
+
+    @testset "limit_flux_wetdry!" begin
+        # h[i,j] layout: row i, column j
+        # h[1,:] = first row (i=1), h[2,:] = second row (i=2)
+        h = [0.01 0.01; 0.0005 0.0005]  # Row 1 wet, Row 2 dry
+        qx = ones(2, 2)
+        qy = ones(2, 2)
+        h_min = 0.001
+
+        limit_flux_wetdry!(qx, qy, h, h_min)
+
+        # qx[i,j] is between cells (i,j) and (i+1,j)
+        # qx[1,1] is at wet/dry interface (h[1,1] wet, h[2,1] dry) - should be reduced
+        @test qx[1, 1] < 1.0
+
+        # qy[i,j] is between cells (i,j) and (i,j+1)
+        # qy[1,1] is between h[1,1] (wet) and h[1,2] (wet) - should be unchanged
+        @test qy[1, 1] ≈ 1.0
+    end
 end
 
 @testset "Boundary Conditions" begin
@@ -212,6 +312,52 @@ end
         @test all(state.qx[10, :] .== 0)
         @test all(state.qy[:, 1] .== 0)
         @test all(state.qy[:, 10] .== 0)
+
+        # Interior should be unchanged
+        @test all(state.qx[2:9, 2:9] .== 1.0)
+    end
+
+    @testset "Open Boundaries" begin
+        state = SimulationState(10, 10)
+        state.qx .= 0.0
+        state.qy .= 0.0
+
+        # Set outflow at boundaries (positive = flow in positive direction)
+        # Right boundary: positive qx = outflow (flowing right, out of domain)
+        # Top boundary: positive qy = outflow (flowing up, out of domain)
+        state.qx[9, :] .= 0.5  # Outflow at right
+        state.qy[:, 9] .= 0.5  # Outflow at top
+
+        apply_open_boundaries!(state)
+
+        # Outflow should be extrapolated
+        @test all(state.qx[10, :] .== 0.5)
+        @test all(state.qy[:, 10] .== 0.5)
+
+        # Inflow at boundaries should be blocked
+        state2 = SimulationState(10, 10)
+        # Left boundary: positive qx would mean inflow (flowing right, into domain)
+        state2.qx[2, :] .= 0.5
+
+        apply_open_boundaries!(state2)
+
+        # Left boundary: extrapolated from interior but inflow blocked
+        # Since qx[2,:] is positive, qx[1,:] would be positive = inflow from left
+        @test all(state2.qx[1, :] .== 0)
+    end
+
+    @testset "apply_boundaries! dispatch" begin
+        state = SimulationState(10, 10)
+        state.qx .= 1.0
+        state.qy .= 1.0
+
+        apply_boundaries!(state, CLOSED)
+        @test all(state.qx[1, :] .== 0)
+
+        state.qx .= 1.0
+        state.qy .= 1.0
+        apply_boundaries!(state)  # Default is CLOSED
+        @test all(state.qx[1, :] .== 0)
     end
 
     @testset "Positive Depth Enforcement" begin
@@ -222,6 +368,34 @@ end
 
         @test state.h[5, 5] == 0.0
         @test all(state.h .>= 0)
+    end
+
+    @testset "Dry Cell Discharge Zeroing" begin
+        state = SimulationState(10, 10)
+        state.h[5, 5] = 0.0005  # Below h_min
+        state.qx[5, 5] = 1.0
+        state.qy[5, 5] = 1.0
+
+        enforce_positive_depth!(state, 0.001)
+
+        # Discharge should be zeroed for dry cells
+        @test state.qx[5, 5] == 0.0
+        @test state.qy[5, 5] == 0.0
+    end
+
+    @testset "Mass Conservation with Closed Boundaries" begin
+        # Start with water, apply closed boundaries, check volume unchanged
+        state = SimulationState(10, 10)
+        state.h .= 1.0
+
+        initial_volume = sum(state.h)
+
+        apply_closed_boundaries!(state)
+        enforce_positive_depth!(state, 0.001)
+
+        final_volume = sum(state.h)
+
+        @test initial_volume ≈ final_volume
     end
 end
 

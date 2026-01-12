@@ -23,6 +23,66 @@ function compute_velocity(q::T, h::T, h_min::T) where T<:AbstractFloat
 end
 
 """
+    is_wet(h, h_min)
+
+Check if a cell is wet (depth above minimum threshold).
+"""
+is_wet(h::T, h_min::T) where T = h > h_min
+
+"""
+    wet_dry_factor(h, h_min, h_transition)
+
+Compute smooth transition factor for wetting/drying.
+Returns 0 for dry cells, 1 for fully wet cells, smooth transition in between.
+
+# Arguments
+- `h`: Water depth
+- `h_min`: Minimum depth (below this is dry)
+- `h_transition`: Transition depth range (default 2*h_min)
+"""
+function wet_dry_factor(h::T, h_min::T, h_transition::T=T(2)*h_min) where T
+    if h <= h_min
+        zero(T)
+    elseif h >= h_min + h_transition
+        one(T)
+    else
+        # Smooth cubic transition
+        x = (h - h_min) / h_transition
+        x * x * (T(3) - T(2) * x)
+    end
+end
+
+"""
+    limit_flux_wetdry!(qx, qy, h, h_min)
+
+Limit fluxes at wet/dry interfaces to prevent instabilities.
+Reduces flux magnitude when flowing into or out of nearly-dry cells.
+"""
+function limit_flux_wetdry!(qx::Matrix{T}, qy::Matrix{T}, h::Matrix{T}, h_min::T) where T
+    nx, ny = size(h)
+    h_transition = T(2) * h_min
+
+    # Limit x-direction fluxes
+    @inbounds for j in 1:ny, i in 1:nx-1
+        # Use minimum wet factor of neighboring cells
+        factor_L = wet_dry_factor(h[i, j], h_min, h_transition)
+        factor_R = wet_dry_factor(h[i+1, j], h_min, h_transition)
+        factor = min(factor_L, factor_R)
+        qx[i, j] *= factor
+    end
+
+    # Limit y-direction fluxes
+    @inbounds for j in 1:ny-1, i in 1:nx
+        factor_B = wet_dry_factor(h[i, j], h_min, h_transition)
+        factor_T = wet_dry_factor(h[i, j+1], h_min, h_transition)
+        factor = min(factor_B, factor_T)
+        qy[i, j] *= factor
+    end
+
+    nothing
+end
+
+"""
     water_surface_elevation(h, z)
 
 Compute water surface elevation η = h + z.

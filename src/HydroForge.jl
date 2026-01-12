@@ -81,6 +81,7 @@ include("numerics/boundaries.jl")
 # Export numerics
 export TimestepController, compute_dt, compute_dt_array, compute_dt_smooth!, check_cfl
 export compute_velocity, water_surface_elevation, water_surface_elevation!
+export is_wet, wet_dry_factor, limit_flux_wetdry!
 export face_depth_x, face_depth_y, compute_flux_x!, compute_flux_y!
 export BoundaryType, CLOSED, OPEN, FIXED_DEPTH
 export apply_boundaries!, apply_closed_boundaries!, apply_open_boundaries!
