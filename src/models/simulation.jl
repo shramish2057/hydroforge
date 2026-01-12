@@ -243,22 +243,82 @@ function run_demo()
 end
 
 
-# Placeholder functions for IO (implemented in later phases)
+# IO Integration
 
+"""
+    ResultsPackage(results::ResultsAccumulator, metadata::Dict)
+
+Create a ResultsPackage from a ResultsAccumulator and metadata.
+"""
+function ResultsPackage(results::ResultsAccumulator{T}, metadata::Dict{String,Any}) where T
+    ResultsPackage{T}(
+        results.max_depth,
+        results.arrival_time,
+        results.max_velocity,
+        results.point_hydrographs,
+        metadata
+    )
+end
+
+"""
+    write_results(output_dir::String, results::ResultsAccumulator, scenario::Scenario, run_id::String)
+
+Convenience function to write results with auto-generated metadata.
+"""
+function write_results(output_dir::String, results::ResultsAccumulator{T},
+                       scenario::Scenario{T}, run_id::String) where T
+    metadata = Dict{String,Any}(
+        "run_id" => run_id,
+        "scenario_name" => scenario.name,
+        "timestamp" => string(now()),
+        "grid_nx" => scenario.grid.nx,
+        "grid_ny" => scenario.grid.ny,
+        "grid_dx" => scenario.grid.dx,
+        "t_end" => scenario.parameters.t_end,
+        "max_depth_overall" => maximum(results.max_depth),
+        "total_rainfall_mm" => total_rainfall(scenario.rainfall),
+    )
+
+    package = ResultsPackage(results, metadata)
+    write_results(output_dir, package, scenario.grid)
+end
+
+"""
+    load_scenario(path::String)
+
+Load a scenario from a TOML file.
+"""
 function load_scenario(path::String)
-    error("Scenario loading not yet implemented. See Phase 4-5.")
+    load_scenario_from_toml(path)
 end
 
-function save_results(config::RunConfig, results::ResultsAccumulator, scenario::Scenario)
-    @info "Results would be saved to $(config.output_dir)"
-    nothing
+"""
+    save_results(config::RunConfig, results::ResultsAccumulator, scenario::Scenario)
+
+Save simulation results to the output directory.
+"""
+function save_results(config::RunConfig, results::ResultsAccumulator{T},
+                      scenario::Scenario{T}) where T
+    write_results(config.output_dir, results, scenario, config.run_id)
 end
 
+"""
+    save_metadata(config::RunConfig, metadata::RunMetadata)
+
+Save run metadata to JSON file.
+"""
 function save_metadata(config::RunConfig, metadata::RunMetadata)
-    @info "Metadata would be saved to $(config.output_dir)"
-    nothing
+    metadata_dict = Dict{String,Any}(
+        "run_id" => metadata.run_id,
+        "start_time" => string(metadata.start_time),
+        "end_time" => metadata.end_time === nothing ? nothing : string(metadata.end_time),
+        "julia_version" => metadata.julia_version,
+        "hydroforge_version" => metadata.hydroforge_version,
+        "git_commit" => metadata.git_commit,
+        "scenario_name" => metadata.scenario_name,
+        "parameters" => metadata.parameters,
+        "status" => string(metadata.status),
+        "error_message" => metadata.error_message,
+    )
+    write_results_json(joinpath(config.output_dir, "run_metadata.json"), metadata_dict)
 end
-
-
-# Version constant
-const HYDROFORGE_VERSION = "0.1.0-dev"

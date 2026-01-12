@@ -39,8 +39,11 @@ HydroForge.run("path/to/scenario.toml")
 module HydroForge
 
 using Dates
-using Random
+using DelimitedFiles
+using JSON3
 using LinearAlgebra
+using Random
+using TOML
 
 # Version
 const HYDROFORGE_VERSION = "0.1.0-dev"
@@ -103,8 +106,9 @@ include("io/writers.jl")
 include("io/validation.jl")
 
 # Export IO
-export read_geotiff, read_rainfall_csv, read_points_geojson
-export write_geotiff, write_hydrograph_csv, write_results_json
+export read_geotiff, read_rainfall_csv, read_points_geojson, read_array
+export read_scenario_toml, load_scenario_from_toml
+export write_geotiff, write_hydrograph_csv, write_results_json, write_array
 export ResultsPackage, write_results
 export validate_dem, validate_roughness, validate_rainfall, validate_scenario
 

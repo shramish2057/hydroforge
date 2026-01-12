@@ -1,0 +1,27 @@
+[scenario]
+name = "Minimal City Demo"
+description = "64x64 synthetic urban catchment for demonstration"
+
+[grid]
+nx = 64
+ny = 64
+dx = 10.0
+x_origin = 0.0
+y_origin = 0.0
+crs = "EPSG:32632"
+
+[input]
+dem = "dem.txt"
+roughness = "roughness.txt"
+rainfall = "rainfall_short.csv"
+
+[parameters]
+t_end = 3600.0
+dt_max = 1.0
+cfl = 0.7
+h_min = 0.001
+output_interval = 60.0
+
+[output]
+directory = "results"
+points = [[32, 32], [16, 16], [48, 48]]
