@@ -93,11 +93,14 @@ export enforce_positive_depth!
 include("physics/friction.jl")
 include("physics/rainfall.jl")
 include("physics/infiltration.jl")
+include("physics/mass_balance.jl")
 
 # Export physics
 export friction_slope, friction_factor, apply_friction!
 export apply_rainfall!, apply_rainfall_spatial!, cumulative_rainfall
 export InfiltrationParameters, infiltration_rate, apply_infiltration!
+export MassBalance, reset!, update_volume!, add_rainfall!, add_outflow!, add_infiltration!
+export mass_error, relative_mass_error, compute_mass_balance, check_mass_balance
 
 # =============================================================================
 # IO
