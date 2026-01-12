@@ -18,6 +18,10 @@ using HydroForge
         include("test_physics.jl")
     end
 
+    @testset "IO" begin
+        include("test_io.jl")
+    end
+
     @testset "Integration" begin
         include("test_integration.jl")
     end

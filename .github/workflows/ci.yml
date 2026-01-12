@@ -7,15 +7,20 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  JULIA_NUM_THREADS: 2
+
 jobs:
   test:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }}
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -25,41 +30,62 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
+          - windows-latest
+        arch:
+          - x64
         exclude:
+          # Reduce CI load by excluding some combinations
           - os: macos-latest
+            version: '1.10'
+          - os: windows-latest
             version: '1.10'
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: julia-actions/setup-julia@v2
+      - name: Setup Julia
+        uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
+          arch: ${{ matrix.arch }}
 
-      - uses: julia-actions/cache@v2
+      - name: Cache Julia packages
+        uses: julia-actions/cache@v2
 
-      - uses: julia-actions/julia-buildpkg@v1
+      - name: Build package
+        uses: julia-actions/julia-buildpkg@v1
 
-      - uses: julia-actions/julia-runtest@v1
+      - name: Run tests
+        uses: julia-actions/julia-runtest@v1
 
-      - uses: julia-actions/julia-processcoverage@v1
+      - name: Process coverage
+        uses: julia-actions/julia-processcoverage@v1
         if: matrix.version == '1' && matrix.os == 'ubuntu-latest'
 
-      - uses: codecov/codecov-action@v4
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
         if: matrix.version == '1' && matrix.os == 'ubuntu-latest'
         with:
           files: lcov.info
           fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   format:
     name: Format Check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: julia-actions/setup-julia@v2
+      - name: Setup Julia
+        uses: julia-actions/setup-julia@v2
         with:
           version: '1'
+
+      - name: Cache Julia packages
+        uses: julia-actions/cache@v2
 
       - name: Install JuliaFormatter
         run: julia -e 'using Pkg; Pkg.add("JuliaFormatter")'
@@ -68,31 +94,84 @@ jobs:
         run: |
           julia -e '
             using JuliaFormatter
-            formatted = format("src", verbose=true)
-            formatted &= format("test", verbose=true)
-            if !formatted
-                @error "Some files are not formatted correctly"
+
+            # Check src/
+            src_formatted = format("src", verbose=true, overwrite=false)
+
+            # Check test/
+            test_formatted = format("test", verbose=true, overwrite=false)
+
+            if !src_formatted || !test_formatted
+                @error "Some files are not formatted correctly. Run: julia -e '\''using JuliaFormatter; format(\"src\"); format(\"test\")'\'' locally."
                 exit(1)
             end
-            @info "All files are formatted correctly"
+
+            @info "All files are formatted correctly!"
           '
 
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      statuses: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: julia-actions/setup-julia@v2
+      - name: Setup Julia
+        uses: julia-actions/setup-julia@v2
         with:
           version: '1'
 
+      - name: Cache Julia packages
+        uses: julia-actions/cache@v2
+
       - name: Install dependencies
-        run: julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
-        continue-on-error: true
+        run: |
+          julia --project=docs -e '
+            using Pkg
+            Pkg.develop(PackageSpec(path=pwd()))
+            Pkg.instantiate()
+          '
 
       - name: Build documentation
         run: julia --project=docs docs/make.jl
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
+
+  benchmark:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+
+      - name: Cache Julia packages
+        uses: julia-actions/cache@v2
+
+      - name: Install dependencies
+        run: |
+          julia --project -e '
+            using Pkg
+            Pkg.instantiate()
+            Pkg.add("BenchmarkTools")
+          '
+
+      - name: Run benchmarks
+        run: |
+          julia --project -e '
+            include("benchmark/benchmarks.jl")
+            # Quick benchmark run
+            results = run(SUITE["grid"], verbose=true, seconds=1)
+            display(results)
+          '

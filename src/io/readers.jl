@@ -193,8 +193,8 @@ function load_scenario_from_toml(path::String)
     # Parse output
     output_config = get(config, "output", Dict())
     output_dir = joinpath(base_dir, get(output_config, "directory", "results"))
-    points_raw = get(output_config, "points", [])
-    output_points = [Tuple{Int,Int}((p[1], p[2])) for p in points_raw]
+    points_raw = get(output_config, "points", Vector{Any}())
+    output_points = Tuple{Int,Int}[(Int(p[1]), Int(p[2])) for p in points_raw]
 
     # Create scenario
     scenario_config = get(config, "scenario", Dict())

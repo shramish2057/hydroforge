@@ -36,7 +36,7 @@ This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDU
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/HydroForge.git
+git clone https://github.com/shramish2057/HydroForge.git
 cd HydroForge
 
 # Install dependencies
